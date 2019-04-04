@@ -19,7 +19,7 @@ faceSizeTolerance = 2500
 faceTolerance = 40
 
 timer = None
-t = 15.0
+t = 5.0
 key = None
 
 camera = PiCamera()
@@ -45,7 +45,6 @@ key = None
 def setKey():
     global key
     print("setKey was called")
-    key = 27
 
 def detectFaces(img):
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -133,13 +132,13 @@ class Control():
         print("RESET HEAD")
 
     def turnLeft(self):
-        self.headTurn += 500
+        self.headTurn += 250
         if(self.headTurn > 7900):
             self.headTurn = 7900
         self.tango.setTarget(HEADTURN, self.headTurn)   
         print("TURN HEAD RIGHT")
     def turnRight(self):
-        self.headTurn -= 500
+        self.headTurn -= 250
         if(self.headTurn < 1510):
             self.headTurn = 1510
         self.tango.setTarget(HEADTURN, self.headTurn)
@@ -306,6 +305,8 @@ while(True):
 
     for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True): #Loop to check if human has left frame
         img = frame.array
+        if key == ord("q") or key == 27:
+            break
         key = cv.waitKey(1) & 0xFF
         if key == ord("q") or key == 27:
             break
@@ -314,6 +315,8 @@ while(True):
             timer = Timer(t, setKey)
             timer.start()
             print("reached this too")
+        elif(not timer.is_alive()):
+            break
         else:
             print("reached the other loop")
             faces = detectFaces(img)
@@ -330,3 +333,4 @@ while(True):
 
     if key == ord("q") or key == 27:
         break
+cv.destroyAllWindows()
