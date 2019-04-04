@@ -11,8 +11,15 @@ import socket
 import threading
 import queue
 
+face_cascade = cv.CascadeClassifier('haarcascade_frontalface_default.xml')
+eye_cascade = cv.CascadeClassifier('haarcascade_eye.xml')
+
+faceSize = 10000
+faceSizeTolerance = 2500
+faceTolerance = 40
+
 timer = None
-t = 5.0
+t = 15.0
 key = None
 
 camera = PiCamera()
@@ -20,12 +27,8 @@ camera.resolution = (640, 480)
 camera.framerate = 32
 rawCapture = PiRGBArray(camera, size=(640, 480))
 
-MOTORS = 1
-TURN = 2
-BODY = 0
-HEADTILT = 4
-HEADTURN = 3
-
+centerx = 640 / 2
+centery = 480 / 2
 
 MOTORS = 1
 TURN = 2
@@ -37,6 +40,28 @@ degreeTot = 0
 direction = 1
 
 globalVar = ""
+
+key = None
+def setKey():
+    global key
+    print("setKey was called")
+    key = 27
+
+def detectFaces(img):
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    #print(faces)
+    thereAreFaces = False
+    for (x,y,w,h) in faces:
+        cv.rectangle(img,(x,y),(x+w,y+h),(255,0,0),2)
+        thereAreFaces = True
+        #roi_gray = gray[y:y+h, x:x+w]
+        #roi_color = img[y:y+h, x:x+w]
+        #eyes = eye_cascade.detectMultiScale(roi_gray)
+    if(thereAreFaces):
+        return faces
+    else:
+        return False
 
 class ClientSocket(threading.Thread):
     def __init__(self, IP, PORT):
@@ -82,11 +107,12 @@ class ClientSocket(threading.Thread):
         exit()
             
 
-IP = '10.200.28.12'
+IP = '10.200.35.21'
 PORT = 5010
 client = ClientSocket(IP, PORT)
+#print(client)
 ##client.start()
-speech = "It goes it goes it goes it goes it goes YUH"
+speech = "It goes it goes it goes it goes it goes yuh"
 
 class Control():
     def __init__(self):
@@ -104,17 +130,20 @@ class Control():
         self.headTurn = 6000
         self.tango.setTarget(HEADTURN, self.headTurn)
         self.tango.setTarget(HEADTILT, self.headTilt)
+        print("RESET HEAD")
 
-    def turnRight(self):
+    def turnLeft(self):
         self.headTurn += 500
         if(self.headTurn > 7900):
             self.headTurn = 7900
         self.tango.setTarget(HEADTURN, self.headTurn)   
-    def turnLeft(self):
+        print("TURN HEAD RIGHT")
+    def turnRight(self):
         self.headTurn -= 500
         if(self.headTurn < 1510):
             self.headTurn = 1510
         self.tango.setTarget(HEADTURN, self.headTurn)
+        print('TURN HEAD LEFT')        
     def tiltUp(self):
         self.headTilt += 500
         if(self.headTilt > 7900):
@@ -122,71 +151,111 @@ class Control():
         self.tango.setTarget(HEADTILT, self.headTilt)
     def tiltDown(self):
         self.headTilt -= 500
-        if(self.headTilt < 2000):
-            self.headTilt = 2000
+        if(self.headTilt < 1510):
+            self.headTilt = 1510
         self.tango.setTarget(HEADTILT, self.headTilt)
     def left(self):
-        self.turn += 1000
+        self.turn += 1200
         self.tango.setTarget(TURN, self.turn)
         print("LEFT")
         time.sleep(.25)
-        self.turn -= 1000
+        self.turn -= 1200
         self.tango.setTarget(TURN, self.turn)
     def right(self):
-        self.turn -= 1000
+        self.turn -= 1200
         self.tango.setTarget(TURN, self.turn)
         print("RIGHT")
         time.sleep(.25)
-        self.turn += 1000
+        self.turn += 1200
         self.tango.setTarget(TURN, self.turn)
     def forward(self):
         self.motors = 5000
         self.tango.setTarget(MOTORS, self.motors)
         print(str(self.motors) + " MOVE")
-        time.sleep(.5)
+        time.sleep(.3)
         self.motors = 6000
         self.tango.setTarget(MOTORS, self.motors)
     def backward(self):
         self.motors = 7000
         self.tango.setTarget(MOTORS, self.motors)
         print(str(self.motors) + " MOVE")
-        time.sleep(.5)
+        time.sleep(.3)
         self.motors = 6000
         self.tango.setTarget(MOTORS, self.motors)
         
     def searchForFaces(self):
+        print("searching")
         headTilt = self.headTilt
         headTurn = self.headTurn
         if(headTilt >= 7900):
             self.resetSearchTilt = True
-        if(headTilt <= 2000):
+        if(headTilt <= 1510):
             self.resetSearchTilt = False
 
         resetPan = self.resetSearchPan
         resetTilt = self.resetSearchTilt
 
         if(headTurn < 7900 and resetPan is False):
-            self.turnRight()
+            self.turnLeft()
         elif(headTurn >= 7900 and resetPan is False):
             self.resetSearchPan = True
             if(resetTilt is False):
                 self.tiltUp()
             else:
                 self.tiltDown()
-            self.turnLeft()
+            self.turnRight()
         elif(headTurn > 1510 and resetPan is True):
-            self.turnLeft()
+            self.turnRight()
         elif(headTurn <= 1510 and resetPan is True):
             self.resetSearchPan = False
             if(resetTilt is False):
                 self.tiltUp()
             else:
                 self.tiltDown()
+            self.turnLeft()
+
+    def alignMoveToFace(self, face):
+        global faceSize, faceSizeTolerance, faceTolerance, centerx, centery
+        largest = 0
+        current = None
+        for (x,y,w,h) in faces:
+            if(w*h) > largest:
+                largest = w*h
+                current = [int(x+(w/2)), int(y+(h/2))]
+        if(current[0] - centerx > faceTolerance): #too far right
+            print("too far left, turn body right")
+            self.right()
+        elif(centerx - current[0] > faceTolerance): #too far left
+            print("too far right, turn body left")
+            self.left()
+        elif(self.headTurn < 5900):
+            print("head is turned right, turning it left now yeet")
+            self.turnLeft()
+        elif(self.headTurn > 6100):
+            print("head is turned left, turning it right now")
             self.turnRight()
+        else:
+            if(current[1] - centery > faceTolerance):
+                self.tiltDown()
+            elif(current[1] - centery < -faceTolerance):
+                self.tiltUp()
+            else:
+                if(largest > faceSize + faceSizeTolerance): #human too big
+                    print("Go backward")
+                    self.backward()
+                elif(largest < faceSize - faceSizeTolerance):
+                    print("Go forward")
+                    self.forward()
+                else:
+                    return False
+        return True
+
+    
 
 
 controller = Control()
 
+time.sleep(2)
 
 while(True):
     controller.resetHead()
@@ -201,9 +270,12 @@ while(True):
                 timer = None
                 break
             else:
-                searchForFaces()
+                controller.searchForFaces()
                 time.sleep(0.5)
+        cv.imshow("Image", img)
+        rawCapture.truncate(0)
 
+    rawCapture.truncate(0)
     if key == ord("q") or key == 27:
         break
 
@@ -215,28 +287,19 @@ while(True):
 
         faces = detectFaces(img)
         if(faces is False):
-            searchForFaces()
+            controller.searchForFaces()
             time.sleep(0.5)
-        elif(human too far left):
-            controller.left()
-            controller.turnRight()
-        elif(human too far right):
-            controller.turnRight()
-            controller.left()
-        else:
-            if(human too high up):
-                controller.tiltUp()
-            elif(human too low down):
-                controller.tiltDown()
-            else:
-                if(human too big):
-                    controller.backward()
-                elif(human too small):
-                    controller.forward()
-                else:
-                    time.sleep(1)   
-                    client.sendData(speech)
-                    break
+        elif(controller.alignMoveToFace(faces) is False):
+            time.sleep(1)
+            print(speech)
+            print(client)
+            client.sendData(speech)
+            break
+        cv.imshow("Image", img)
+        rawCapture.truncate(0)
+    
+    print("start of third loop")
+    rawCapture.truncate(0)        
 
     if key == ord("q") or key == 27:
         break
@@ -246,23 +309,24 @@ while(True):
         key = cv.waitKey(1) & 0xFF
         if key == ord("q") or key == 27:
             break
-        elif(timer = None):
-            timer = Timer(t, break)
+        elif(timer is None):
+            print("reached this one")
+            timer = Timer(t, setKey)
             timer.start()
+            print("reached this too")
         else:
+            print("reached the other loop")
             faces = detectFaces(img)
             if(faces is not False):
-                timer = Timer(t, break)
+                print("reset timer")
+                timer.cancel()
+                timer = Timer(t, setKey)
                 timer.start()
+        if key == ord("q") or key == 27:
+            break
+        cv.imshow("Image", img)
+        rawCapture.truncate(0)
+    rawCapture.truncate(0)
 
     if key == ord("q") or key == 27:
         break
-
-    
-def detectFaces(self, frame):
-    
-    return
-    #scan for faces
-    #return dimensions of face if found, false otherwise
-
-
